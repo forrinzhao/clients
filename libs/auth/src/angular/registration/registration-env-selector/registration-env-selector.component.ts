@@ -6,20 +6,23 @@ import { FormBuilder, FormControl, ReactiveFormsModule, Validators } from "@angu
 import {
   Observable,
   Subject,
+  firstValueFrom,
   from,
-  map,
   of,
   pairwise,
   startWith,
   switchMap,
   takeUntil,
-  tap,
 } from "rxjs";
 
+import { CustomEnvironmentsDialogComponent } from "@bitwarden/angular/auth/custom-environments-dialog";
 import { SelfHostedEnvConfigDialogComponent } from "@bitwarden/angular/auth/self-hosted-env-config-dialog";
 import { JslibModule } from "@bitwarden/angular/jslib.module";
 import { ClientType } from "@bitwarden/common/enums";
-import { AvailableRegionsService } from "@bitwarden/common/platform/abstractions/available-regions.service";
+import {
+  CustomEnvironment,
+  CustomEnvironmentsService,
+} from "@bitwarden/common/platform/abstractions/custom-environments.service";
 import {
   EnvironmentService,
   Region,
@@ -34,6 +37,8 @@ import { DialogService, FormFieldModule, SelectModule, ToastService } from "@bit
 /**
  * Component for selecting the environment to register with in the email verification registration flow.
  * Outputs the selected region to the parent component so it can respond as necessary.
+ *
+ * Instead of the compile-time cloud regions this presents the user's own saved self-hosted servers.
  */
 // FIXME(https://bitwarden.atlassian.net/browse/CL-764): Migrate to OnPush
 // eslint-disable-next-line @angular-eslint/prefer-on-push-component-change-detection
@@ -51,18 +56,24 @@ export class RegistrationEnvSelectorComponent implements OnInit, OnDestroy {
 
   ServerEnvironmentType = Region;
 
+  /** Sentinel select value for the free-text "other" self-hosted option. */
+  readonly OTHER_VALUE = "__other_server__";
+  /** Sentinel select value for opening the manage-servers dialog. */
+  readonly MANAGE_VALUE = "__manage_servers__";
+  private readonly CUSTOM_PREFIX = "custom:";
+
   formGroup = this.formBuilder.group({
-    selectedRegion: [null as RegionConfig | typeof Region.SelfHosted | null, Validators.required],
+    selectedEnv: [null as string | null, Validators.required],
   });
 
-  get selectedRegion(): FormControl {
-    return this.formGroup.get("selectedRegion") as FormControl;
+  get selectedEnv(): FormControl {
+    return this.formGroup.get("selectedEnv") as FormControl;
   }
 
-  availableRegionConfigs$: Observable<RegionConfig[]> =
-    this.availableRegionsService.availableRegions$;
+  customEnvironments$: Observable<CustomEnvironment[]> =
+    this.customEnvironmentsService.customEnvironments$;
 
-  private selectedRegionFromEnv: RegionConfig | typeof Region.SelfHosted;
+  private selectedEnvFromEnvId: string | null = null;
 
   hideEnvSelector = false;
   isDesktopOrBrowserExtension = false;
@@ -72,7 +83,7 @@ export class RegistrationEnvSelectorComponent implements OnInit, OnDestroy {
   constructor(
     private formBuilder: FormBuilder,
     private environmentService: EnvironmentService,
-    private availableRegionsService: AvailableRegionsService,
+    private customEnvironmentsService: CustomEnvironmentsService,
     private dialogService: DialogService,
     private i18nService: I18nService,
     private toastService: ToastService,
@@ -90,115 +101,110 @@ export class RegistrationEnvSelectorComponent implements OnInit, OnDestroy {
       return;
     }
 
-    await this.initSelectedRegionAndListenForEnvChanges();
-    this.listenForSelectedRegionChanges();
+    this.selectedEnvFromEnvId = await this.deriveSelectionFromEnv();
+    this.selectedEnv.setValue(this.selectedEnvFromEnvId, { emitEvent: false });
+    this.emitSelected(this.selectedEnvFromEnvId);
+
+    this.listenForSelectedEnvChanges();
   }
 
-  private async initSelectedRegionAndListenForEnvChanges() {
-    this.environmentService.environment$
-      .pipe(
-        map((env) => {
-          const region: Region = env.getRegion();
-          const regionConfig: RegionConfig | undefined = this.environmentService
-            .availableRegions()
-            .find((availableRegionConfig) => availableRegionConfig.key === region);
+  /** Maps an internal select value to the region shape the parent component consumes. */
+  private emitSelected(value: string | null) {
+    if (value === null) {
+      this.selectedRegionChange.emit(null);
+      return;
+    }
 
-          if (regionConfig === undefined) {
-            // Self hosted does not have a region config.
-            return Region.SelfHosted;
-          }
-
-          return regionConfig;
-        }),
-        tap((selectedRegionFromEnv: RegionConfig | typeof Region.SelfHosted) => {
-          // Only set the value if it is different from the current value.
-          if (selectedRegionFromEnv !== this.selectedRegion.value) {
-            // Don't emit to avoid triggering the selectedRegion valueChanges subscription
-            // which could loop back to this code.
-            this.selectedRegion.setValue(selectedRegionFromEnv, { emitEvent: false });
-          }
-
-          // Save this off so we can reset the value to the previously selected region
-          // if the self hosted settings are closed without saving.
-          this.selectedRegionFromEnv = selectedRegionFromEnv;
-
-          // Emit the initial value
-          this.selectedRegionChange.emit(selectedRegionFromEnv);
-        }),
-        takeUntil(this.destroy$),
-      )
-      .subscribe();
+    // Both a saved server and the "other" option are self-hosted from the parent's perspective.
+    this.selectedRegionChange.emit(Region.SelfHosted);
   }
 
-  /**
-   * Listens for changes to the selected region and updates the form value and emits the selected region.
-   */
-  private listenForSelectedRegionChanges() {
-    this.selectedRegion.valueChanges
+  /** Derives the select value that corresponds to the currently configured environment. */
+  private async deriveSelectionFromEnv(): Promise<string | null> {
+    const list = await this.customEnvironmentsService.getCustomEnvironments();
+    const env = await firstValueFrom(this.environmentService.environment$);
+    const urls = env?.getUrls();
+    const base = urls?.base ?? urls?.webVault;
+    const match = list.find((entry) => (entry.urls.base ?? entry.urls.webVault) === base);
+
+    if (match) {
+      return this.CUSTOM_PREFIX + match.id;
+    }
+
+    if (env?.getRegion() === Region.SelfHosted) {
+      return this.OTHER_VALUE;
+    }
+
+    return null;
+  }
+
+  private listenForSelectedEnvChanges() {
+    this.selectedEnv.valueChanges
       .pipe(
         startWith(null), // required so that first user choice is not ignored
         pairwise(),
-        switchMap(
-          ([prevSelectedRegion, selectedRegion]: [
-            RegionConfig | typeof Region.SelfHosted | null,
-            RegionConfig | typeof Region.SelfHosted | null,
-          ]) => {
-            if (selectedRegion === null) {
-              this.selectedRegionChange.emit(selectedRegion);
-              return of(null);
-            }
-
-            if (selectedRegion !== Region.SelfHosted) {
-              this.selectedRegionChange.emit(selectedRegion);
-              return from(this.environmentService.setEnvironment(selectedRegion.key));
-            }
-
+        switchMap(([prev, value]: [string | null, string | null]) => {
+          if (value === null) {
+            this.selectedRegionChange.emit(null);
             return of(null);
-          },
-        ),
+          }
+
+          if (value === this.MANAGE_VALUE) {
+            return from(this.handleManage(prev));
+          }
+
+          if (value === this.OTHER_VALUE) {
+            return from(this.handleOther(prev));
+          }
+
+          if (value.startsWith(this.CUSTOM_PREFIX)) {
+            return from(this.handleCustom(value.substring(this.CUSTOM_PREFIX.length)));
+          }
+
+          return of(null);
+        }),
         takeUntil(this.destroy$),
       )
       .subscribe();
   }
 
-  private handleSelfHostedEnvConfigDialogResult(
-    result: boolean | undefined,
-    prevSelectedRegion: RegionConfig | typeof Region.SelfHosted | null,
-  ) {
+  private async handleManage(prev: string | null) {
+    await CustomEnvironmentsDialogComponent.open(this.dialogService);
+    const selection = await this.deriveSelectionFromEnv();
+    this.selectedEnv.setValue(selection ?? prev, { emitEvent: false });
+    this.emitSelected(this.selectedEnv.value);
+  }
+
+  private async handleOther(prev: string | null) {
+    const result = await SelfHostedEnvConfigDialogComponent.open(this.dialogService);
+
     if (result === true) {
-      this.selectedRegionChange.emit(Region.SelfHosted);
       this.toastService.showToast({
         variant: "success",
         title: null,
         message: this.i18nService.t("environmentSaved"),
       });
+      const selection = await this.deriveSelectionFromEnv();
+      this.selectedEnv.setValue(selection, { emitEvent: false });
+      this.selectedRegionChange.emit(Region.SelfHosted);
       return;
     }
 
-    // Reset the value to the previously selected region or the current env setting
-    // if the self hosted env settings dialog is closed without saving.
-    if (
-      (result === false || result === undefined) &&
-      prevSelectedRegion !== null &&
-      prevSelectedRegion !== Region.SelfHosted
-    ) {
-      this.selectedRegionChange.emit(prevSelectedRegion);
-      this.selectedRegion.setValue(prevSelectedRegion, { emitEvent: false });
-    } else {
-      this.selectedRegionChange.emit(this.selectedRegionFromEnv);
-      this.selectedRegion.setValue(this.selectedRegionFromEnv, { emitEvent: false });
-    }
+    // Reset to the previously selected value when the dialog was dismissed.
+    this.selectedEnv.setValue(prev ?? this.selectedEnvFromEnvId, { emitEvent: false });
   }
 
-  /**
-   * Handles the event when the select is closed.
-   * If the selected region is self-hosted, opens the self-hosted environment settings dialog.
-   */
-  protected async onSelectClosed() {
-    if (this.selectedRegion.value === Region.SelfHosted) {
-      const result = await SelfHostedEnvConfigDialogComponent.open(this.dialogService);
-      return this.handleSelfHostedEnvConfigDialogResult(result, this.selectedRegion.value);
+  private async handleCustom(id: string) {
+    const list = await this.customEnvironmentsService.getCustomEnvironments();
+    const env = list.find((entry) => entry.id === id);
+
+    if (!env) {
+      this.selectedEnv.setValue(this.selectedEnvFromEnvId, { emitEvent: false });
+      return;
     }
+
+    await this.environmentService.setEnvironment(Region.SelfHosted, env.urls);
+    this.selectedRegionChange.emit(Region.SelfHosted);
   }
 
   ngOnDestroy() {
