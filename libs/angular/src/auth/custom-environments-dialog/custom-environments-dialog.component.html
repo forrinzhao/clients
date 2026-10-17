@@ -1,0 +1,51 @@
+<form [formGroup]="formGroup" bit-dialog>
+  <span bitDialogTitle>{{ "manageServers" | i18n }}</span>
+  <ng-container bitDialogContent>
+    <ng-container *ngIf="{ servers: servers$ | async } as data">
+      <div class="tw-flex tw-flex-col tw-gap-2">
+        <div
+          *ngFor="let s of data.servers"
+          class="tw-flex tw-items-center tw-justify-between tw-gap-2 tw-rounded tw-border tw-border-secondary-300 tw-px-2 tw-py-1"
+        >
+          <div class="tw-min-w-0">
+            <div class="tw-font-medium tw-truncate">{{ s.label }}</div>
+            <div class="tw-text-sm tw-text-muted tw-truncate">
+              {{ s.urls.base || s.urls.webVault }}
+            </div>
+          </div>
+          <div class="tw-flex tw-gap-1">
+            <button type="button" bitButton buttonType="secondary" (click)="edit(s)">
+              {{ "edit" | i18n }}
+            </button>
+            <button type="button" bitButton buttonType="danger" (click)="remove(s)">
+              {{ "delete" | i18n }}
+            </button>
+          </div>
+        </div>
+        <div *ngIf="data.servers?.length === 0" class="tw-text-sm tw-text-muted">
+          {{ "noSavedServers" | i18n }}
+        </div>
+      </div>
+    </ng-container>
+
+    <hr class="tw-my-3" />
+
+    <bit-form-field>
+      <bit-label>{{ "serverName" | i18n }}</bit-label>
+      <input bitInput type="text" formControlName="label" appInputVerbatim />
+    </bit-form-field>
+    <bit-form-field>
+      <bit-label>{{ "baseUrl" | i18n }}</bit-label>
+      <input bitInput type="text" formControlName="baseUrl" appAutofocus appInputVerbatim />
+      <bit-hint>{{ "selfHostedBaseUrlHint" | i18n }}</bit-hint>
+    </bit-form-field>
+  </ng-container>
+  <ng-container bitDialogFooter>
+    <button type="button" bitButton bitFormButton buttonType="primary" (click)="save()">
+      {{ "save" | i18n }}
+    </button>
+    <button type="button" bitButton bitFormButton buttonType="secondary" (click)="cancel()">
+      {{ "cancel" | i18n }}
+    </button>
+  </ng-container>
+</form>
