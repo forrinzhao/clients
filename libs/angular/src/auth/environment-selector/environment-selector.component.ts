@@ -1,12 +1,14 @@
 import { CommonModule } from "@angular/common";
 import { Component, OnDestroy } from "@angular/core";
-import { Observable, Subject, map } from "rxjs";
+import { Observable, Subject, combineLatest, map } from "rxjs";
 
-import { AvailableRegionsService } from "@bitwarden/common/platform/abstractions/available-regions.service";
+import {
+  CustomEnvironment,
+  CustomEnvironmentsService,
+} from "@bitwarden/common/platform/abstractions/custom-environments.service";
 import {
   EnvironmentService,
   Region,
-  RegionConfig,
 } from "@bitwarden/common/platform/abstractions/environment.service";
 import { I18nService } from "@bitwarden/common/platform/abstractions/i18n.service";
 import {
@@ -19,6 +21,7 @@ import {
 } from "@bitwarden/components";
 import { I18nPipe } from "@bitwarden/ui-common";
 
+import { CustomEnvironmentsDialogComponent } from "../custom-environments-dialog";
 import { SelfHostedEnvConfigDialogComponent } from "../self-hosted-env-config-dialog";
 
 // FIXME(https://bitwarden.atlassian.net/browse/CL-764): Migrate to OnPush
@@ -31,20 +34,52 @@ import { SelfHostedEnvConfigDialogComponent } from "../self-hosted-env-config-di
 })
 export class EnvironmentSelectorComponent implements OnDestroy {
   protected ServerEnvironmentType = Region;
-  protected availableRegions$: Observable<RegionConfig[]> =
-    this.availableRegionsService.availableRegions$;
-  protected selectedRegion$: Observable<RegionConfig | undefined> =
-    this.environmentService.globalEnvironment$.pipe(
-      map((env) =>
-        this.environmentService.availableRegions().find((ar) => ar.key === env.getRegion()),
-      ),
-    );
+  protected customEnvironments$: Observable<CustomEnvironment[]> =
+    this.customEnvironmentsService.customEnvironments$;
+
+  /** Label shown on the trigger button for the currently selected environment. */
+  protected displayLabel$: Observable<string> = combineLatest([
+    this.customEnvironmentsService.customEnvironments$,
+    this.environmentService.globalEnvironment$,
+  ]).pipe(
+    map(([list, env]) => {
+      const urls = env?.getUrls();
+      const base = urls?.base ?? urls?.webVault;
+      const match = list.find((entry) => (entry.urls.base ?? entry.urls.webVault) === base);
+      if (match) {
+        return match.label;
+      }
+      if (env?.getRegion() === Region.SelfHosted) {
+        return this.i18nService.t("otherServer");
+      }
+      return this.i18nService.t("noSavedServers");
+    }),
+  );
+
+  /**
+   * Tracks which environment is currently selected so the UI can show a checkmark.
+   * `id` references a saved custom server; `isSelfHosted` covers the free-text "Other" option.
+   */
+  protected selectedEnv$: Observable<{ id?: string; isSelfHosted: boolean }> = combineLatest([
+    this.customEnvironmentsService.customEnvironments$,
+    this.environmentService.globalEnvironment$,
+  ]).pipe(
+    map(([list, env]) => {
+      const urls = env?.getUrls();
+      const base = urls?.base ?? urls?.webVault;
+      const match = list.find((entry) => (entry.urls.base ?? entry.urls.webVault) === base);
+      return {
+        id: match?.id,
+        isSelfHosted: env?.getRegion() === Region.SelfHosted && match == null,
+      };
+    }),
+  );
 
   private destroy$ = new Subject<void>();
 
   constructor(
     public environmentService: EnvironmentService,
-    private availableRegionsService: AvailableRegionsService,
+    private customEnvironmentsService: CustomEnvironmentsService,
     private dialogService: DialogService,
     private toastService: ToastService,
     private i18nService: I18nService,
@@ -55,27 +90,22 @@ export class EnvironmentSelectorComponent implements OnDestroy {
     this.destroy$.complete();
   }
 
-  async toggle(option: Region) {
-    if (option === null) {
-      return;
-    }
+  async selectCustom(env: CustomEnvironment) {
+    await this.environmentService.setEnvironment(Region.SelfHosted, env.urls);
+  }
 
-    /**
-     * Opens the self-hosted settings dialog when the self-hosted option is selected.
-     */
-    if (option === Region.SelfHosted) {
-      const dialogResult = await SelfHostedEnvConfigDialogComponent.open(this.dialogService);
-      if (dialogResult) {
-        this.toastService.showToast({
-          variant: "success",
-          title: "",
-          message: this.i18nService.t("environmentSaved"),
-        });
-      }
-      // Don't proceed to setEnvironment when the self-hosted dialog is cancelled
-      return;
-    }
+  async openManage() {
+    await CustomEnvironmentsDialogComponent.open(this.dialogService);
+  }
 
-    await this.environmentService.setEnvironment(option);
+  async toggleOther() {
+    const dialogResult = await SelfHostedEnvConfigDialogComponent.open(this.dialogService);
+    if (dialogResult) {
+      this.toastService.showToast({
+        variant: "success",
+        title: "",
+        message: this.i18nService.t("environmentSaved"),
+      });
+    }
   }
 }

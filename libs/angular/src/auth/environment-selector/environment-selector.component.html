@@ -1,46 +1,59 @@
 <ng-container
   *ngIf="{
-    selectedRegion: selectedRegion$ | async,
+    selected: selectedEnv$ | async,
+    customs: customEnvironments$ | async,
+    label: displayLabel$ | async,
   } as data"
 >
   <div class="tw-mb-1">
     <bit-menu #environmentOptions>
-      <button
-        *ngFor="let region of availableRegions$ | async; let i = index"
-        bitMenuItem
-        type="button"
-        [attr.aria-pressed]="data.selectedRegion === region ? 'true' : 'false'"
-        (click)="toggle(region.key)"
-      >
+      <ng-container *ngIf="data.customs?.length; else noServers">
+        <button
+          *ngFor="let env of data.customs"
+          bitMenuItem
+          type="button"
+          [attr.aria-pressed]="data.selected?.id === env.id ? 'true' : 'false'"
+          (click)="selectCustom(env)"
+        >
+          <bit-icon
+            name="bwi-check"
+            class="bwi-fw bwi-sm"
+            style="padding-bottom: 1px"
+            [style.visibility]="data.selected?.id === env.id ? 'visible' : 'hidden'"
+          ></bit-icon>
+          <span>{{ env.label }}</span>
+        </button>
+      </ng-container>
+      <ng-template #noServers>
+        <div bitMenuItem disabled style="opacity: 0.7; cursor: default">
+          {{ "noSavedServers" | i18n }}
+        </div>
+      </ng-template>
+
+      <button bitMenuItem type="button" (click)="openManage()">
         <bit-icon
           name="bwi-check"
           class="bwi-fw bwi-sm"
           style="padding-bottom: 1px"
-          [style.visibility]="data.selectedRegion === region ? 'visible' : 'hidden'"
+          [style.visibility]="'hidden'"
         ></bit-icon>
-        <span>{{ region.domain }}</span>
+        <span>{{ "manageServers" | i18n }}</span>
       </button>
-      <button
-        bitMenuItem
-        type="button"
-        [attr.aria-pressed]="data.selectedRegion ? 'false' : 'true'"
-        (click)="toggle(ServerEnvironmentType.SelfHosted)"
-      >
+
+      <button bitMenuItem type="button" (click)="toggleOther()">
         <bit-icon
           name="bwi-check"
           class="bwi-fw bwi-sm"
           style="padding-bottom: 1px"
-          [style.visibility]="data.selectedRegion ? 'hidden' : 'visible'"
+          [style.visibility]="data.selected?.isSelfHosted ? 'visible' : 'hidden'"
         ></bit-icon>
-        <span>{{ "selfHostedServer" | i18n }}</span>
+        <span>{{ "otherServer" | i18n }}</span>
       </button>
     </bit-menu>
     <div bitTypography="body2">
       {{ "accessing" | i18n }}:
       <button [bitMenuTriggerFor]="environmentOptions" bitLink type="button">
-        <b class="tw-text-primary-600 tw-font-medium">{{
-          data.selectedRegion?.domain || ("selfHostedServer" | i18n)
-        }}</b>
+        <b class="tw-text-primary-600 tw-font-medium">{{ data.label }}</b>
         <bit-icon name="bwi-angle-down" class="bwi-fw bwi-sm"></bit-icon>
       </button>
     </div>
