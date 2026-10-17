@@ -4250,6 +4250,18 @@
   "selfHostedServer": {
     "message": "自托管"
   },
+  "manageServers": {
+    "message": "管理服务器"
+  },
+  "otherServer": {
+    "message": "其他服务器"
+  },
+  "noSavedServers": {
+    "message": "暂无已保存的服务器"
+  },
+  "serverName": {
+    "message": "服务器名称"
+  },
   "accessDenied": {
     "message": "访问被拒绝。您没有查看此页面的权限。"
   },

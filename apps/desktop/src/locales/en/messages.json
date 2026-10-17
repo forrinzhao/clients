@@ -4292,6 +4292,18 @@
   "selfHostedServer": {
     "message": "self-hosted"
   },
+  "manageServers": {
+    "message": "Manage servers"
+  },
+  "otherServer": {
+    "message": "Other server"
+  },
+  "noSavedServers": {
+    "message": "No saved servers"
+  },
+  "serverName": {
+    "message": "Server name"
+  },
   "accessDenied": {
     "message": "Access denied. You do not have permission to view this page."
   },

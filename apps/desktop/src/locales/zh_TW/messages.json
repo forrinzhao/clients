@@ -4250,6 +4250,18 @@
   "selfHostedServer": {
     "message": "自架"
   },
+  "manageServers": {
+    "message": "管理伺服器"
+  },
+  "otherServer": {
+    "message": "其他伺服器"
+  },
+  "noSavedServers": {
+    "message": "尚無已儲存的伺服器"
+  },
+  "serverName": {
+    "message": "伺服器名稱"
+  },
   "accessDenied": {
     "message": "拒絕存取。您沒有檢視此頁面的權限。"
   },
