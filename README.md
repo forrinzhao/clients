@@ -38,6 +38,7 @@ Security audits and feedback are welcome. Please open an issue or email us priva
 # 本 Fork 的自定义改动：自管服务器 / Self-managed servers
 
 > 个人 fork,用于自托管场景定制。改动仅涉及 OSS 部分,未修改 `bitwarden_license/`。
+> 构建、打包与自动化验收见 [`docs/BUILD.md`](docs/BUILD.md)。
 
 ## 功能 / Features
 
